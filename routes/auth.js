@@ -1,9 +1,11 @@
 const express = require("express");
 const router = express.Router();
-const { handleLogin, handleSignUp, handleUsername, handleLogout } = require("../controllers/authControllers");
+const { handleLogin, handleSignUp, handleUsername, handleLogout , checkPasswordStrength} = require("../controllers/authControllers");
 
 
 router.post("/checkusername", handleUsername);
+
+router.post("/checkPasswordStrength", checkPasswordStrength);
 // Login
 router.post("/login", handleLogin);
 

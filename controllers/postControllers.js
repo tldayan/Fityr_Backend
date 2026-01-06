@@ -1,35 +1,45 @@
-
-const db = require("../mysqlDb");
+const db = require("../psqlDb");
 
 
 const createPost = async (req, res) => {
   const { title, description } = req.body;
 
   if (!title || !description) {
-    return res.status(400).json({ message: "Title and description are required." });
+    return res.status(400).json({
+      message: "Title and description are required.",
+    });
   }
 
-  const stytchUserId = req.user.stytch_user_id;
-
-  try { 
-
-    const [rows] = await db.query("SELECT id FROM users WHERE stytch_user_id = ?", [stytchUserId]);
-    if (rows.length === 0) {
-      return res.status(400).json({ error: "User not found" });
-    }
-    const userId = rows[0].id;
-
-
-    const [result] = await db.query(
-      "INSERT INTO posts (title, description, user_id) VALUES (?, ?, ?)",
-      [title, description, userId]
+  try {
+    const userResult = await db.query(
+      "SELECT id FROM users WHERE stytch_user_id = $1",
+      [req.user.stytch_user_id]
     );
 
+    if (!userResult.rows.length) {
+      return res.status(400).json({ error: "User not found" });
+    }
+
+    const userId = userResult.rows[0].id;
+
+    const insertResult = await db.query(
+      `
+      INSERT INTO posts (title, description, user_id)
+      VALUES ($1, $2, $3)
+      RETURNING id
+      `,
+      [title, description, userId]
+    );
 
     res.status(201).json({
       success: true,
       message: "Post created successfully",
-      post: { id: result.insertId, title, description, user_id: userId },
+      post: {
+        id: insertResult.rows[0].id,
+        title,
+        description,
+        user_id: userId,
+      },
     });
   } catch (err) {
     console.error("Insert error:", err);
@@ -39,124 +49,138 @@ const createPost = async (req, res) => {
 
 
 const getPosts = async (req, res) => {
-  const postId = req.params.id || req.query.id;
+  const postId = req.params?.id || req.query?.id;
   let { page = 1, limit = 10, sort } = req.query;
 
-  page = parseInt(page, 10);
-  limit = parseInt(limit, 10);
+  page = Number(page);
+  limit = Number(limit);
   const offset = (page - 1) * limit;
 
   try {
-
-    const stytchUserId = req.user?.stytch_user_id;
     let loggedInUserId = null;
 
-    if (stytchUserId) {
-      const [userRow] = await db.query(
-        "SELECT id FROM users WHERE stytch_user_id = ?",
-        [stytchUserId]
+    if (req.user?.stytch_user_id) {
+      const userResult = await db.query(
+        "SELECT id FROM users WHERE stytch_user_id = $1",
+        [req.user.stytch_user_id]
       );
-      if (userRow.length > 0) loggedInUserId = userRow[0].id;
+      loggedInUserId = userResult.rows[0]?.id ?? null;
     }
+
 
     if (postId) {
       const query = `
         SELECT 
-          posts.*, 
+          posts.*,
           users.username,
-          (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS commentCount,
-          ${loggedInUserId ? "pv.vote" : "NULL"} AS userVote
+          (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS "commentCount",
+          ${loggedInUserId ? "pv.vote" : "NULL"} AS "userVote"
         FROM posts
         JOIN users ON posts.user_id = users.id
-        ${loggedInUserId ? "LEFT JOIN post_votes pv ON pv.post_id = posts.id AND pv.user_id = ?" : ""}
-        WHERE posts.id = ?
+        ${loggedInUserId
+          ? "LEFT JOIN post_votes pv ON pv.post_id = posts.id AND pv.user_id = $1"
+          : ""}
+        WHERE posts.id = $${loggedInUserId ? 2 : 1}
       `;
-      const params = loggedInUserId ? [loggedInUserId, postId] : [postId];
-      const [results] = await db.query(query, params);
 
-      if (results.length === 0) {
+      const params = loggedInUserId
+        ? [loggedInUserId, postId]
+        : [postId];
+
+      const result = await db.query(query, params);
+
+      if (!result.rows.length) {
         return res.status(404).json({ message: "Post not found" });
       }
 
-      return res.json(results[0]);
+      return res.json(result.rows[0]);
     }
+
 
     const orderBy = sort === "old" ? "ASC" : "DESC";
 
-    const [countResult] = await db.query("SELECT COUNT(*) as total FROM posts");
-    const total = countResult[0].total;
+    const countResult = await db.query("SELECT COUNT(*) FROM posts");
+    const total = parseInt(countResult.rows[0].count, 10);
     const totalPages = Math.ceil(total / limit);
 
     const query = `
       SELECT 
-        posts.*, 
+        posts.*,
         users.username,
-        (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS commentCount,
-        ${loggedInUserId ? "pv.vote" : "NULL"} AS userVote
+        (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS "commentCount",
+        ${loggedInUserId ? "pv.vote" : "NULL"} AS "userVote"
       FROM posts
       JOIN users ON posts.user_id = users.id
-      ${loggedInUserId ? "LEFT JOIN post_votes pv ON pv.post_id = posts.id AND pv.user_id = ?" : ""}
+      ${loggedInUserId
+        ? "LEFT JOIN post_votes pv ON pv.post_id = posts.id AND pv.user_id = $1"
+        : ""}
       ORDER BY posts.created_at ${orderBy}
-      LIMIT ? OFFSET ?
+      LIMIT $${loggedInUserId ? 2 : 1}
+      OFFSET $${loggedInUserId ? 3 : 2}
     `;
 
-    const params = loggedInUserId ? [loggedInUserId, limit, offset] : [limit, offset];
-    const [results] = await db.query(query, params);
+    const params = loggedInUserId
+      ? [loggedInUserId, limit, offset]
+      : [limit, offset];
 
-    return res.json({
-      data: results,
+    const results = await db.query(query, params);
+
+    res.json({
+      data: results.rows,
       meta: { total, page, limit, totalPages },
     });
   } catch (err) {
     console.error("Get posts error:", err);
-    return res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 };
 
 
-
-
-
 const handlePostVote = async (req, res) => {
-
-  const postId = req.params.id || req.query.id;
+  const postId = req.params?.id || req.query?.id;
   const { voteType } = req.body;
   const { stytch_user_id } = req.user;
 
-
   if (!postId || voteType === undefined) {
-    return res.status(400).json({ message: "postId and voteType required" });
+    return res.status(400).json({
+      message: "postId and voteType required",
+    });
   }
 
   try {
 
-    const [userRows] = await db.query(
-      "SELECT id FROM users WHERE stytch_user_id = ?",
+    const userResult = await db.query(
+      "SELECT id FROM users WHERE stytch_user_id = $1",
       [stytch_user_id]
     );
-    if (userRows.length === 0) {
+
+    if (!userResult.rows.length) {
       return res.status(401).json({ message: "User not found" });
     }
-    const userId = userRows[0].id;
 
-    const [existing] = await db.query(
-      "SELECT vote FROM post_votes WHERE user_id = ? AND post_id = ?",
+    const userId = userResult.rows[0].id;
+
+
+    const existingResult = await db.query(
+      "SELECT vote FROM post_votes WHERE user_id = $1 AND post_id = $2",
       [userId, postId]
     );
 
-    let currentVote = existing.length ? existing[0].vote : null;
+    const currentVote = existingResult.rows[0]?.vote ?? null;
 
-    if (voteType === null) {
+    if (voteType === null || currentVote === voteType) {
       if (currentVote !== null) {
         await db.query(
-          "DELETE FROM post_votes WHERE user_id = ? AND post_id = ?",
+          "DELETE FROM post_votes WHERE user_id = $1 AND post_id = $2",
           [userId, postId]
         );
 
         await db.query(
-          `UPDATE posts
-           SET vote = vote ${currentVote === "upvote" ? "- 1" : "+ 1"}
-           WHERE id = ?`,
+          `
+          UPDATE posts
+          SET vote = vote ${currentVote === "upvote" ? "- 1" : "+ 1"}
+          WHERE id = $1
+          `,
           [postId]
         );
       }
@@ -164,77 +188,68 @@ const handlePostVote = async (req, res) => {
       return res.json({
         success: true,
         userVote: null,
-        message: "Vote removed"
+        message: "Vote removed",
       });
     }
 
 
-    if (currentVote === voteType) {
-      await db.query(
-        "DELETE FROM post_votes WHERE user_id = ? AND post_id = ?",
-        [userId, postId]
-      );
-
-
-      await db.query(
-        `UPDATE posts
-         SET vote = vote ${voteType === "upvote" ? "- 1" : "+ 1"}
-         WHERE id = ?`,
-        [postId]
-      );
-
-      return res.json({
-        success: true,
-        userVote: null,
-        message: "Vote removed"
-      });
-    }
-
-  
     if (currentVote === null) {
       await db.query(
-        "INSERT INTO post_votes (user_id, post_id, vote) VALUES (?, ?, ?)",
+        `
+        INSERT INTO post_votes (user_id, post_id, vote)
+        VALUES ($1, $2, $3)
+        `,
         [userId, postId, voteType]
       );
 
       await db.query(
-        `UPDATE posts
-         SET vote = vote ${voteType === "upvote" ? "+ 1" : "- 1"}
-         WHERE id = ?`,
+        `
+        UPDATE posts
+        SET vote = vote ${voteType === "upvote" ? "+ 1" : "- 1"}
+        WHERE id = $1
+        `,
         [postId]
       );
 
       return res.json({
         success: true,
         userVote: voteType,
-        message: "Vote added"
+        message: "Vote added",
       });
     }
 
 
     await db.query(
-      "UPDATE post_votes SET vote = ? WHERE user_id = ? AND post_id = ?",
+      `
+      UPDATE post_votes
+      SET vote = $1
+      WHERE user_id = $2 AND post_id = $3
+      `,
       [voteType, userId, postId]
     );
 
     await db.query(
-      `UPDATE posts
-       SET vote = vote ${voteType === "upvote" ? "+ 2" : "- 2"}
-       WHERE id = ?`,
+      `
+      UPDATE posts
+      SET vote = vote ${voteType === "upvote" ? "+ 2" : "- 2"}
+      WHERE id = $1
+      `,
       [postId]
     );
 
     res.json({
       success: true,
       userVote: voteType,
-      message: "Vote switched"
+      message: "Vote switched",
     });
-
   } catch (err) {
     console.error("Vote error:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
-
-module.exports = { createPost, getPosts, handlePostVote };
+module.exports = {
+  createPost,
+  getPosts,
+  handlePostVote,
+};

@@ -6,11 +6,8 @@ const requireAuth = require("../middleware/auth");
 const optionalAuth = require("../middleware/optionalAuth");
 
 
-router.get("/", optionalAuth, getPosts);      
-router.get("/:id", (req, res, next) => {
-    console.log("GET SPECIFIC ROUTE HIT");
-    next();
-  } ,optionalAuth, getPosts);  
+router.get("/", optionalAuth, getPosts);     
+router.get("/:id", optionalAuth, getPosts); 
 
 
 router.get("/:postId/comments", optionalAuth, getComments);

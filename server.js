@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const app = express();
-const db = require("./mysqlDb");
+const db = require("./psqlDb");
 const postRoutes = require("./routes/posts");
 const eventRoutes = require("./routes/events");
 const searchRoutes = require("./routes/search");
@@ -18,7 +18,6 @@ app.use(cors(corsOptions));
 app.use(cookieParser());
 
 
-// PUBLIC ROUTES
 app.use("/aws", awsRoutes);
 app.use("/posts", postRoutes);
 app.use("/events", eventRoutes);

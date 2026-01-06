@@ -1,63 +1,55 @@
-const db = require("../mysqlDb");
+const db = require("../psqlDb");
 
 
 const getEvents = async (req, res) => {
   let { page = 1, limit = 10, sort } = req.query;
-  const {id} = req.params || req.query
+  const id = req.params?.id || req.query?.id;
 
-  console.log(page, limit, sort)
-
-  page = parseInt(page, 10);
-  limit = parseInt(limit, 10);
+  page = Number(page);
+  limit = Number(limit);
   const offset = (page - 1) * limit;
 
   try {
-
-    if(id) {
-
-      console.log(id)
-
+    if (id) {
       const eventResult = await db.query(
-        "SELECT events.*, users.username FROM events JOIN users ON events.host_id = users.id WHERE events.id = ?",
+        `
+        SELECT events.*, users.username
+        FROM events
+        JOIN users ON events.host_id = users.id
+        WHERE events.id = $1
+        `,
         [id]
       );
 
-      if (eventResult.length === 0) {
+      if (!eventResult.rows.length) {
         return res.status(404).json({ message: "Event not found" });
       }
 
-      const event = eventResult[0]
-
-
-      return res.json(event)
+      return res.json(eventResult.rows[0]);
     }
 
 
     const orderBy = sort === "old" ? "ASC" : "DESC";
 
-
-    const [countResult] = await db.query("SELECT COUNT(*) AS total FROM events");
-    const total = countResult[0].total;
+    const countResult = await db.query("SELECT COUNT(*) FROM events");
+    const total = parseInt(countResult.rows[0].count, 10);
     const totalPages = Math.ceil(total / limit);
 
-
-    const query = `
-      SELECT 
-        events.*,
-        users.username
+    const results = await db.query(
+      `
+      SELECT events.*, users.username
       FROM events
       JOIN users ON events.host_id = users.id
       ORDER BY events.created_at ${orderBy}
-      LIMIT ? OFFSET ?
-    `;
-
-    const [results] = await db.query(query, [limit, offset]);
+      LIMIT $1 OFFSET $2
+      `,
+      [limit, offset]
+    );
 
     return res.json({
-      data: results,
+      data: results.rows,
       meta: { total, page, limit, totalPages },
     });
-
   } catch (err) {
     console.error("Get events error:", err);
     return res.status(500).json({ error: err.message });
@@ -66,28 +58,26 @@ const getEvents = async (req, res) => {
 
 
 const getParticipants = async (req, res) => {
-  console.log("participant get came");
   try {
     const { id } = req.params;
 
-    const [rows] = await db.query(
+    const result = await db.query(
       `
       SELECT 
-        u.stytch_user_id as user_id,
+        u.stytch_user_id AS user_id,
         u.username,
         u.profile_pic
       FROM event_participants ep
-      INNER JOIN users u ON ep.user_id = u.id
-      WHERE ep.event_id = ?
-      `
+      JOIN users u ON ep.user_id = u.id
+      WHERE ep.event_id = $1
+      `,
       [id]
     );
 
     return res.json({
       success: true,
-      data: rows,
+      data: result.rows,
     });
-
   } catch (error) {
     console.error("Error fetching participants:", error);
     return res.status(500).json({
@@ -98,76 +88,74 @@ const getParticipants = async (req, res) => {
 };
 
 
-
 const attendEvent = async (req, res) => {
-  
   try {
-    const { id } = req.params || req.query;
-    const { stytch_user_id } = req.user; 
+    const id = req.params?.id || req.query?.id;
+    const { stytch_user_id } = req.user;
 
-    console.log(id, stytch_user_id)
+    if (!id) return res.status(400).json({ message: "Event ID missing" });
+    if (!stytch_user_id) return res.status(401).json({ message: "Unauthorized" });
 
-    if (!id) {
-      return res.status(400).json({ message: "Event ID missing" });
-    }
-
-    if (!stytch_user_id) {
-      return res.status(401).json({ message: "User not authenticated" });
-    }
-
-
-    const [userRows] = await db.query(
-      "SELECT id FROM users WHERE stytch_user_id = ?",
+    const userResult = await db.query(
+      "SELECT id FROM users WHERE stytch_user_id = $1",
       [stytch_user_id]
     );
 
-    if (userRows.length === 0) {
-      return res.status(404).json({ message: "User not found in DB" });
+    if (!userResult.rows.length) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    const userId = userRows[0].id;
+    const userId = userResult.rows[0].id;
 
-
-    const [eventRows] = await db.query(
-      "SELECT * FROM events WHERE id = ?",
+    const eventResult = await db.query(
+      "SELECT * FROM events WHERE id = $1",
       [id]
     );
 
-    if (eventRows.length === 0) {
+    if (!eventResult.rows.length) {
       return res.status(404).json({ message: "Event not found" });
     }
 
-    const event = eventRows[0];
+    const event = eventResult.rows[0];
 
-
-    if (event.max_participants && event.participants >= event.max_participants) {
+    if (
+      event.max_participants &&
+      event.participants >= event.max_participants
+    ) {
       return res.status(400).json({ message: "Event is full" });
     }
 
- 
-    const [existing] = await db.query(
-      "SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
+    const existing = await db.query(
+      `
+      SELECT 1
+      FROM event_participants
+      WHERE event_id = $1 AND user_id = $2
+      `,
       [id, userId]
     );
 
-    if (existing.length > 0) {
-      return res.status(400).json({ message: "You already joined this event" });
+    if (existing.rows.length) {
+      return res.status(400).json({ message: "Already joined" });
     }
 
-
     await db.query(
-      "INSERT INTO event_participants (event_id, user_id) VALUES (?, ?)",
+      `
+      INSERT INTO event_participants (event_id, user_id)
+      VALUES ($1, $2)
+      `,
       [id, userId]
     );
 
-
     await db.query(
-      "UPDATE events SET participants = participants + 1 WHERE id = ?",
+      `
+      UPDATE events
+      SET participants = participants + 1
+      WHERE id = $1
+      `,
       [id]
     );
 
     return res.status(201).json({ message: "Successfully joined event" });
-
   } catch (err) {
     console.error("Attend event error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -177,74 +165,59 @@ const attendEvent = async (req, res) => {
 
 const leaveEvent = async (req, res) => {
   try {
-    const { id } = req.params || req.query; 
+    const id = req.params?.id || req.query?.id;
     const { stytch_user_id } = req.user;
 
-    if (!id) {
-      return res.status(400).json({ message: "Event ID missing" });
-    }
+    if (!id) return res.status(400).json({ message: "Event ID missing" });
 
-    if (!stytch_user_id) {
-      return res.status(401).json({ message: "User not authenticated" });
-    }
-
-
-    const [userRows] = await db.query(
-      "SELECT id FROM users WHERE stytch_user_id = ?",
+    const userResult = await db.query(
+      "SELECT id FROM users WHERE stytch_user_id = $1",
       [stytch_user_id]
     );
 
-    if (userRows.length === 0) {
-      return res.status(404).json({ message: "User not found in DB" });
+    if (!userResult.rows.length) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    const userId = userRows[0].id;
+    const userId = userResult.rows[0].id;
 
-
-    const [eventRows] = await db.query(
-      "SELECT * FROM events WHERE id = ?",
+    const eventResult = await db.query(
+      "SELECT * FROM events WHERE id = $1",
       [id]
     );
 
-    if (eventRows.length === 0) {
+    if (!eventResult.rows.length) {
       return res.status(404).json({ message: "Event not found" });
     }
 
-    const event = eventRows[0];
-
-
-    if (event.host_id === userId) {
+    if (eventResult.rows[0].host_id === userId) {
       return res.status(400).json({
-        message: "Host cannot leave their own event"
+        message: "Host cannot leave their own event",
       });
     }
 
-
-    const [existing] = await db.query(
-      "SELECT * FROM event_participants WHERE event_id = ? AND user_id = ?",
+    const deleteResult = await db.query(
+      `
+      DELETE FROM event_participants
+      WHERE event_id = $1 AND user_id = $2
+      `,
       [id, userId]
     );
 
-    if (existing.length === 0) {
-      return res.status(400).json({ message: "You have not joined this event" });
+    if (!deleteResult.rowCount) {
+      return res.status(400).json({ message: "Not a participant" });
     }
 
-
-    const [deleteResult] = await db.query(
-      "DELETE FROM event_participants WHERE event_id = ? AND user_id = ?",
-      [id, userId]
+    await db.query(
+      `
+      UPDATE events
+      SET participants = participants - 1
+      WHERE id = $1
+      `,
+      [id]
     );
 
-    if (deleteResult.affectedRows > 0) {
-
-      await db.query(
-        "UPDATE events SET participants = participants - 1 WHERE id = ?",
-        [id]
-      );
-    }
-
-    return res.status(200).json({ message: "Successfully left event" });
-
+    return res.json({ message: "Successfully left event" });
   } catch (err) {
     console.error("Leave event error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -260,25 +233,22 @@ const createEvent = async (req, res) => {
       eventBanner,
       eventStartTime,
       eventEndTime,
-      location
+      location,
     } = req.body;
 
-
-
-    
-    const [users] = await db.execute(
-      "SELECT id FROM users WHERE stytch_user_id = ?",
+    const userResult = await db.query(
+      "SELECT id FROM users WHERE stytch_user_id = $1",
       [req.user.stytch_user_id]
     );
 
-    if (!users.length) {
-      return res.status(400).json({ ok: false, error: "User not found" });
+    if (!userResult.rows.length) {
+      return res.status(400).json({ error: "User not found" });
     }
 
-    const hostId = users[0].id;
-    const locationString = JSON.stringify(location);
+    const hostId = userResult.rows[0].id;
 
-    const sql = `
+    await db.query(
+      `
       INSERT INTO events (
         event_name,
         event_description,
@@ -289,28 +259,31 @@ const createEvent = async (req, res) => {
         image_url,
         participants
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const values = [
-      eventName,
-      eventDescription,
-      eventStartTime,
-      eventEndTime,
-      hostId,
-      locationString,
-      eventBanner,
-      1
-    ];
-
-    await db.execute(sql, values);
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `,
+      [
+        eventName,
+        eventDescription,
+        eventStartTime,
+        eventEndTime,
+        hostId,
+        JSON.stringify(location),
+        eventBanner,
+        1,
+      ]
+    );
 
     res.json({ ok: true, message: "Event created successfully!" });
   } catch (err) {
-    console.error("Error creating event:", err);
-    res.status(500).json({ ok: false, error: "Server error creating event" });
+    console.error("Create event error:", err);
+    res.status(500).json({ error: "Server error creating event" });
   }
 };
 
-
-module.exports = { getEvents, getParticipants, attendEvent, leaveEvent, createEvent};
+module.exports = {
+  getEvents,
+  getParticipants,
+  attendEvent,
+  leaveEvent,
+  createEvent,
+};

@@ -1,6 +1,7 @@
 const stytchClient = require("../config/stytchClient");
 
 const optionalAuth = async (req, res, next) => {
+
   try {
  
     let sessionJwt = req.cookies?.stytch_session_jwt;
