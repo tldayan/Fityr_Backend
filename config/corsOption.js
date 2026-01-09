@@ -1,7 +1,9 @@
 const whitelist = [
   "http://localhost:3000", 
-  "https://fityr.xyz"   
+  "https://fityr.xyz",
+  "https://www.fityr.xyz"
 ];
+
 
 const corsOptions = {
   origin: (origin, callback) => {
