@@ -1,9 +1,7 @@
 const db = require("../psqlDb");
 const stytchClient = require("../config/stytchClient");
 
-// =========================
-// CHECK USERNAME AVAILABILITY
-// =========================
+
 const handleUsername = async (req, res) => {
   try {
     const { username } = req.body;
@@ -20,11 +18,9 @@ const handleUsername = async (req, res) => {
   }
 };
 
-// =========================
-// SIGN UP
-// =========================
+
 const handleSignUp = async (req, res) => {
-  console.log("SIGN UP REQ CAME");
+
   const { email, password, username, session_token } = req.body;
 
   if (!email || !password || !username) {
@@ -95,9 +91,7 @@ const handleSignUp = async (req, res) => {
   }
 };
 
-// =========================
-// LOGIN
-// =========================
+
 const handleLogin = async (req, res) => {
   const { session_jwt, stytch_user_id } = req.body;
 

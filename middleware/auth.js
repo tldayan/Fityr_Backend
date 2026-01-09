@@ -8,11 +8,7 @@ const requireAuth = async (req, res, next) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
 
-    console.time("Stytch authenticateJwt");
-
     const authRes = await stytchClient.sessions.authenticateJwt({ session_jwt: sessionJwt });
-
-    console.timeEnd("Stytch authenticateJwt");
 
     if (!authRes?.session?.user_id) {
       return res.status(401).json({ error: "Invalid session object" });

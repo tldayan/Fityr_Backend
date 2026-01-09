@@ -13,10 +13,5 @@ router.post("/logout", handleLogout)
 // Sign up
 router.post("/signup", handleSignUp);
 
-// Refresh token
-/* router.post("/refresh", handleRefresh);
-
-// Magic link authentication
-router.get("/authenticate", handleAuthenticate); */
 
 module.exports = router;

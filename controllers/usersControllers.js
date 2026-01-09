@@ -72,6 +72,7 @@ const getUserContent = async (req, res) => {
 
   try {
     if (contentType === "posts") {
+
       const { rows: countRows } = await db.query(
         `
         SELECT COUNT(*) AS total
@@ -85,6 +86,7 @@ const getUserContent = async (req, res) => {
       const total = Number(countRows[0].total);
       const totalPages = Math.ceil(total / limit);
 
+
       const query = `
         SELECT
           posts.id,
@@ -94,14 +96,20 @@ const getUserContent = async (req, res) => {
           users.username,
           (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS "commentCount",
           (SELECT COUNT(*) FROM post_votes WHERE post_votes.post_id = posts.id) AS vote,
-          ${loggedInUserId ? "pv.vote" : "NULL"} AS "userVote"
+          ${loggedInUserId ? "pv.vote" : "NULL"} AS "userVote",
+          COALESCE(
+            ARRAY_AGG(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL),
+            '{}'
+          ) AS images
         FROM posts
         JOIN users ON users.id = posts.user_id
+        LEFT JOIN post_images pi ON pi.post_id = posts.id
         ${loggedInUserId
           ? "LEFT JOIN post_votes pv ON pv.post_id = posts.id AND pv.user_id = $1"
           : ""
         }
         WHERE users.username = $${loggedInUserId ? 2 : 1}
+        GROUP BY posts.id, users.username${loggedInUserId ? ", pv.vote" : ""}
         ORDER BY posts.created_at DESC
         LIMIT $${loggedInUserId ? 3 : 2}
         OFFSET $${loggedInUserId ? 4 : 3}
@@ -118,6 +126,7 @@ const getUserContent = async (req, res) => {
         meta: { total, page, limit, totalPages },
       });
     }
+
 
         if (contentType === "comments") {
       const { rows: countRows } = await db.query(

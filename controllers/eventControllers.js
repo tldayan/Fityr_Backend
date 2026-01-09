@@ -236,6 +236,24 @@ const createEvent = async (req, res) => {
       location,
     } = req.body;
 
+    // 1️⃣ Validate required fields
+    if (
+      !eventName ||
+      !eventDescription ||
+      !eventBanner ||
+      !eventStartTime ||
+      !eventEndTime ||
+      !location
+    ) {
+      return res.status(400).json({ error: "All event fields are required" });
+    }
+
+    // Optional: validate location is an object
+    if (typeof location !== "object") {
+      return res.status(400).json({ error: "Location must be an object" });
+    }
+
+    // 2️⃣ Find host user
     const userResult = await db.query(
       "SELECT id FROM users WHERE stytch_user_id = $1",
       [req.user.stytch_user_id]
@@ -247,6 +265,7 @@ const createEvent = async (req, res) => {
 
     const hostId = userResult.rows[0].id;
 
+    // 3️⃣ Insert event
     await db.query(
       `
       INSERT INTO events (
@@ -279,6 +298,7 @@ const createEvent = async (req, res) => {
     res.status(500).json({ error: "Server error creating event" });
   }
 };
+
 
 module.exports = {
   getEvents,

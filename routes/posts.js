@@ -4,6 +4,7 @@ const { createPost, getPosts, handlePostVote } = require("../controllers/postCon
 const { createComment, getComments, getCommentReplies, handleCommentVote } = require("../controllers/commentControllers");
 const requireAuth = require("../middleware/auth");
 const optionalAuth = require("../middleware/optionalAuth");
+const userRateLimiter = require("../middleware/UserRateLimiter");
 
 
 router.get("/", optionalAuth, getPosts);     
@@ -18,7 +19,7 @@ router.post("/", requireAuth, createPost);
 router.patch("/:id/vote", requireAuth, handlePostVote);
 
 
-router.post("/:postId/comments", requireAuth, createComment);
+router.post("/:postId/comments", requireAuth, userRateLimiter,createComment);
 router.patch("/:commentId/comments/vote", requireAuth, handleCommentVote);
 
 module.exports = router;
