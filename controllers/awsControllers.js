@@ -1,48 +1,57 @@
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
-const { getSignedUrl } = require("@aws-sdk/s3-request-presigner"); // use this everywhere
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { s3 } = require("../config/s3Client");
 const { randomUUID } = require("crypto");
 
+const BUCKET = process.env.AWS_BUCKET_NAME;
 
 const uploadEventBanner = async (req, res) => {
   try {
     const { fileName, fileType } = req.body;
 
+    if (!fileType?.startsWith("image/")) {
+      return res.status(400).json({ error: "Invalid file type" });
+    }
+
+    const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "");
+
     const command = new PutObjectCommand({
-      Bucket: "fitness-project-tldayan",
-      Key: `eventBanners/${Date.now()}-${fileName}`,
+      Bucket: BUCKET,
+      Key: `eventBanners/${Date.now()}-${safeFileName}`,
       ContentType: fileType,
     });
 
-    const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 }); 
+    const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
 
-    return res.json({ uploadUrl });
-  } catch (error) {
-    console.error("Error generating signed URL:", error);
-    return res.status(500).json({ error: "Failed to generate signed URL" });
-  }
-};
-
-
-
-const uploadProfilePicture = async (req, res) => {
-  try {
-    const { fileType } = req.body;
-    console.log(req.user.stytch_user_id)
-    const command = new PutObjectCommand({
-      Bucket: "fitness-project-tldayan",
-      Key: `profilePics/${req.user.stytch_user_id}.png`, 
-      ContentType: fileType,
-    });
-
-    const uploadUrl = await generateSignedUrl(s3, command, { expiresIn: 3600 });
-    
     res.json({ uploadUrl });
   } catch (error) {
+    console.error("Event banner signed URL error:", error);
     res.status(500).json({ error: "Failed to generate signed URL" });
   }
 };
 
+const uploadProfilePicture = async (req, res) => {
+  try {
+    const { fileType } = req.body;
+
+    if (!fileType?.startsWith("image/")) {
+      return res.status(400).json({ error: "Invalid file type" });
+    }
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: `profilePics/${req.user.stytch_user_id}.png`,
+      ContentType: fileType,
+    });
+
+    const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
+
+    res.json({ uploadUrl });
+  } catch (error) {
+    console.error("Profile pic signed URL error:", error);
+    res.status(500).json({ error: "Failed to generate signed URL" });
+  }
+};
 
 const uploadPostImages = async (req, res) => {
   try {
@@ -52,31 +61,25 @@ const uploadPostImages = async (req, res) => {
       return res.status(400).json({ error: "Invalid file type" });
     }
 
-    const fileExtension = fileType.split("/")[1];
-
-    const key = `postImages/${req.user.stytch_user_id}/${randomUUID()}.${fileExtension}`;
+    const ext = fileType.split("/")[1];
+    const key = `postImages/${req.user.stytch_user_id}/${randomUUID()}.${ext}`;
 
     const command = new PutObjectCommand({
-      Bucket: "fitness-project-tldayan",
+      Bucket: BUCKET,
       Key: key,
       ContentType: fileType,
     });
 
-    const uploadUrl = await getSignedUrl(s3, command, {
-      expiresIn: 60, // 1 minute
-    });
-    console.log(uploadUrl)
+    const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 60 });
 
     res.json({
       uploadUrl,
-      imageUrl: `https://fitness-project-tldayan.s3.amazonaws.com/${key}`,
+      imageUrl: `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`,
     });
   } catch (err) {
-    console.error("Signed URL error:", err);
+    console.error("Post image signed URL error:", err);
     res.status(500).json({ error: "Failed to generate signed URL" });
   }
 };
-
-
 
 module.exports = { uploadEventBanner, uploadProfilePicture, uploadPostImages };
