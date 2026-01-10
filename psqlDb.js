@@ -7,7 +7,10 @@ const pool = new Pool({
   password: process.env.DB_PASS || "",
   database: process.env.DB_NAME || "Fityr",
   port: process.env.DB_PORT || 5001, // PostgreSQL default port */
-  connectionString: process.env.SUPABASE_PSQL
+  connectionString: process.env.SUPABASE_PSQL,
+  ssl: {
+    rejectUnauthorized: false,
+  }
 });
 
 module.exports = pool;
