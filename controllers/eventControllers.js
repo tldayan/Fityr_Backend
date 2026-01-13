@@ -2,6 +2,7 @@ const db = require("../psqlDb");
 
 
 const getEvents = async (req, res) => {
+  console.log("get event came")
   let { page = 1, limit = 10, sort } = req.query;
   const id = req.params?.id || req.query?.id;
 
@@ -10,7 +11,6 @@ const getEvents = async (req, res) => {
   const offset = (page - 1) * limit;
 
   try {
-
     if (id) {
       const eventResult = await db.query(
         `
@@ -46,6 +46,7 @@ const getEvents = async (req, res) => {
     }
 
 
+
     const orderBy = sort === "old" ? "ASC" : "DESC";
 
     const countResult = await db.query("SELECT COUNT(*) FROM events");
@@ -54,7 +55,7 @@ const getEvents = async (req, res) => {
 
     const results = await db.query(
       `
-      SELECT events.*, users.username AS host_username
+      SELECT events.*, users.username
       FROM events
       JOIN users ON events.host_id = users.id
       ORDER BY events.created_at ${orderBy}
@@ -63,31 +64,15 @@ const getEvents = async (req, res) => {
       [limit, offset]
     );
 
-
-    const data = results.rows.map((event) => {
-      let location = null;
-      try {
-        if (event.location && typeof event.location === "string") {
-          location = JSON.parse(event.location);
-        } else {
-          location = event.location ?? null;
-        }
-      } catch (err) {
-        console.error("Invalid location JSON for event", event.id);
-      }
-      return { ...event, location };
-    });
-
     return res.json({
-      data,
+      data: results.rows,
       meta: { total, page, limit, totalPages },
     });
   } catch (err) {
     console.error("Get events error:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: err.message });
   }
 };
-
 
 
 const getParticipants = async (req, res) => {
