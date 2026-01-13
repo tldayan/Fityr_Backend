@@ -10,10 +10,11 @@ const getEvents = async (req, res) => {
   const offset = (page - 1) * limit;
 
   try {
+
     if (id) {
       const eventResult = await db.query(
         `
-        SELECT events.*, users.username
+        SELECT events.*, users.username AS host_username
         FROM events
         JOIN users ON events.host_id = users.id
         WHERE events.id = $1
@@ -25,7 +26,23 @@ const getEvents = async (req, res) => {
         return res.status(404).json({ message: "Event not found" });
       }
 
-      return res.json(eventResult.rows[0]);
+      const rawEvent = eventResult.rows[0];
+
+
+      let location = null;
+      try {
+        if (rawEvent.location && typeof rawEvent.location === "string") {
+          location = JSON.parse(rawEvent.location);
+        } else {
+          location = rawEvent.location ?? null;
+        }
+      } catch (err) {
+        console.error("Invalid location JSON for event", rawEvent.id);
+        location = null;
+      }
+
+      const event = { ...rawEvent, location };
+      return res.json(event);
     }
 
 
@@ -37,7 +54,7 @@ const getEvents = async (req, res) => {
 
     const results = await db.query(
       `
-      SELECT events.*, users.username
+      SELECT events.*, users.username AS host_username
       FROM events
       JOIN users ON events.host_id = users.id
       ORDER BY events.created_at ${orderBy}
@@ -46,15 +63,31 @@ const getEvents = async (req, res) => {
       [limit, offset]
     );
 
+
+    const data = results.rows.map((event) => {
+      let location = null;
+      try {
+        if (event.location && typeof event.location === "string") {
+          location = JSON.parse(event.location);
+        } else {
+          location = event.location ?? null;
+        }
+      } catch (err) {
+        console.error("Invalid location JSON for event", event.id);
+      }
+      return { ...event, location };
+    });
+
     return res.json({
-      data: results.rows,
+      data,
       meta: { total, page, limit, totalPages },
     });
   } catch (err) {
     console.error("Get events error:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Internal server error" });
   }
 };
+
 
 
 const getParticipants = async (req, res) => {
