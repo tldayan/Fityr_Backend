@@ -153,6 +153,7 @@ const getUserContent = async (req, res) => {
           posts.id AS "postId",
           posts.title AS "postTitle",
           users.username,
+          users.profile_pic,
           ${loggedInUserId ? "cv.vote" : "NULL"} AS "userVote"
         FROM comments
         JOIN users ON users.id = comments.user_id
